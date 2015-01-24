@@ -1,13 +1,13 @@
 # #######################################
 #
-# HAL file for BeagleBone + BeBoPr cape with 4 steppers
+# HAL file for BeagleBone + BeBoPr++ cape with 4 steppers
 #
 # Derived from example hm2-stepper config
 #
 # ########################################
 
 # Launch the setup script to make sure hardware setup looks good
-loadusr -w ./setup.bridge.sh
+loadusr -w ../setup.bridge.sh
 
 
 # ###################################
@@ -15,25 +15,31 @@ loadusr -w ./setup.bridge.sh
 # ###################################
 
 # kinematics
-loadrt trivkins
+loadrt lineardeltakins 
+
+# settings for delta printer
+setp lineardeltakins.L [MACHINE]CF_ROD
+setp lineardeltakins.R [MACHINE]DELTA_R
 
 # motion controller, get name and thread periods from ini file
 loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[TRAJ]AXES
 
-
 # load low-level drivers
 loadrt hal_bb_gpio output_pins=107,126,217,218,224,226 input_pins=108,109,110,114,117,118
-loadrt [PRUCONF](DRIVER) prucode=$(HAL_RTMOD_DIR)/[PRUCONF](PRUBIN) [PRUCONF](CONFIG)
+loadrt [PRUCONF](DRIVER) prucode=$(LINUXCNC_HOME)/[PRUCONF](PRUBIN) [PRUCONF](CONFIG)
 loadrt pid num_chan=2
 loadrt limit1 count=2
-
-loadrt gantry count=1 personality=2
 
 
 # Python user-mode HAL module to read ADC value and generate a thermostat output for PWM
 # t = Thermistor table (only epcos_B57560G1104 or 1 supported for now)
 # a = analog input channel
-loadusr -Wn Therm ./ReadTemp.py -n Therm --num_chan 2 -t 1 1 -a 4 5
+loadusr -Wn Therm ../ReadTemp.py -n Therm --num_chan 2 -t 1 1 -a 4 5
+
+#used for comparing temperature set value with actual for waiting on temperature
+loadrt wcomp count=1
+# Initialize the sum2
+loadrt sum2 count=2
 
 # ################################################
 # THREADS
@@ -50,6 +56,10 @@ addf limit1.1                             servo-thread
 addf [PRUCONF](DRIVER).update             servo-thread
 addf bb_gpio.write                        servo-thread
 
+addf wcomp.0                              servo-thread
+addf sum2.0                               servo-thread
+addf sum2.1                               servo-thread
+       
 
 # ######################################################
 # Axis-of-motion Specific Configs (not the GUI)
@@ -57,14 +67,14 @@ addf bb_gpio.write                        servo-thread
 
 
 # ################
-# X [0] Axis
+# X [0] Axis = column C
 # ################
 
 # axis enable chain
 newsig emcmot.00.enable bit
 sets emcmot.00.enable FALSE
 
-net emcmot.00.enable <= axis.0.amp-enable-out
+net emcmot.00.enable <= axis.0.amp-enable-out 
 net emcmot.00.enable => [PRUCONF](DRIVER).stepgen.00.enable
 
 
@@ -94,45 +104,42 @@ setp [PRUCONF](DRIVER).stepgen.00.steppin         0x4C
 # P8.44 PRU1.out4
 setp [PRUCONF](DRIVER).stepgen.00.dirpin          0x4D
 
+# because column C is connected to the X-axis output
+# the bebopr-bridge signal needs to be X-max means P8.9
+net home-x bb_gpio.p8.in-09 => axis.0.home-sw-in
+setp bb_gpio.p8.in-09.invert 1 
 
 # ################
-# Y [1] Axis
+# Y [1] Axis = column A
 # ################
 
 # axis enable chain
 newsig emcmot.01.enable bit
 sets emcmot.01.enable FALSE
 
-net emcmot.01.enable <= axis.1.amp-enable-out
-net emcmot.01.enable => [PRUCONF](DRIVER).stepgen.01.enable [PRUCONF](DRIVER).stepgen.03.enable
+net emcmot.01.enable <= axis.1.amp-enable-out 
+net emcmot.01.enable => [PRUCONF](DRIVER).stepgen.01.enable
 
 
 # position command and feedback
 net emcmot.01.pos-cmd <= axis.1.motor-pos-cmd
 net emcmot.01.pos-cmd => [PRUCONF](DRIVER).stepgen.01.position-cmd
-net emcmot.01.pos-cmd => [PRUCONF](DRIVER).stepgen.03.position-cmd
 
 net motor.01.pos-fb <= [PRUCONF](DRIVER).stepgen.01.position-fb
 net motor.01.pos-fb => axis.1.motor-pos-fb
 
+
 # timing parameters
 setp [PRUCONF](DRIVER).stepgen.01.dirsetup        [AXIS_1]DIRSETUP
-setp [PRUCONF](DRIVER).stepgen.03.dirsetup        [AXIS_1]DIRSETUP
 setp [PRUCONF](DRIVER).stepgen.01.dirhold         [AXIS_1]DIRHOLD
-setp [PRUCONF](DRIVER).stepgen.03.dirhold         [AXIS_1]DIRHOLD
 
 setp [PRUCONF](DRIVER).stepgen.01.steplen         [AXIS_1]STEPLEN
-setp [PRUCONF](DRIVER).stepgen.03.steplen         [AXIS_1]STEPLEN
 setp [PRUCONF](DRIVER).stepgen.01.stepspace       [AXIS_1]STEPSPACE
-setp [PRUCONF](DRIVER).stepgen.03.stepspace       [AXIS_1]STEPSPACE
 
 setp [PRUCONF](DRIVER).stepgen.01.position-scale  [AXIS_1]SCALE
-setp [PRUCONF](DRIVER).stepgen.03.position-scale  [AXIS_1]SCALE
 
 setp [PRUCONF](DRIVER).stepgen.01.maxvel          [AXIS_1]STEPGEN_MAX_VEL
-setp [PRUCONF](DRIVER).stepgen.03.maxvel          [AXIS_1]STEPGEN_MAX_VEL
 setp [PRUCONF](DRIVER).stepgen.01.maxaccel        [AXIS_1]STEPGEN_MAX_ACC
-setp [PRUCONF](DRIVER).stepgen.03.maxaccel        [AXIS_1]STEPGEN_MAX_ACC
 
 #setp [PRUCONF](DRIVER).stepgen.01.step_type       0
 # P8.42 PRU1.out5
@@ -140,23 +147,21 @@ setp [PRUCONF](DRIVER).stepgen.01.steppin         0x4E
 # P8.39 PRU1.out6
 setp [PRUCONF](DRIVER).stepgen.01.dirpin          0x4F
 
-# P8.30 GPIO2.25
-setp [PRUCONF](DRIVER).stepgen.03.steppin         0x22
-# P8.21 GPIO1.30
-setp [PRUCONF](DRIVER).stepgen.03.dirpin          0x23
 
-# Invert step direction on second Y
-setp [PRUCONF](DRIVER).stepgen.03.stepinvert      1
+# because column A is connected to the Y-axis output
+# the bebopr-bridge signal needs to be Y-max means P8.14
+net home-y bb_gpio.p8.in-14 => axis.1.home-sw-in
+setp bb_gpio.p8.in-14.invert 1
 
 # ################
-# Z [2] Axis
+# Z [2] Axis = column B
 # ################
 
 # axis enable chain
 newsig emcmot.02.enable bit
 sets emcmot.02.enable FALSE
 
-net emcmot.02.enable <= axis.2.amp-enable-out
+net emcmot.02.enable <= axis.2.amp-enable-out 
 net emcmot.02.enable => [PRUCONF](DRIVER).stepgen.02.enable
 
 
@@ -186,44 +191,48 @@ setp [PRUCONF](DRIVER).stepgen.02.steppin         0x50
 # P8.29 PRU1.out9
 setp [PRUCONF](DRIVER).stepgen.02.dirpin          0x51
 
+# because column B is connected to the Z-axis output
+# the bebopr-bridge signal needs to be Z-max means P8.18
+net home-z bb_gpio.p8.in-18 => axis.2.home-sw-in
+setp bb_gpio.p8.in-18.invert 1
 
 # ################
 # A [3] Axis (Extruder)
 # ################
 
 # axis enable chain
-#### newsig emcmot.03.enable bit
-#### sets emcmot.03.enable FALSE
+newsig emcmot.03.enable bit
+sets emcmot.03.enable FALSE
 
-#### net emcmot.03.enable <= axis.3.amp-enable-out
-##### net emcmot.03.enable => [PRUCONF](DRIVER).stepgen.03.enable
+net emcmot.03.enable <= axis.3.amp-enable-out 
+net emcmot.03.enable => [PRUCONF](DRIVER).stepgen.03.enable
 
 
 # position command and feedback
-#### net emcmot.03.pos-cmd <= axis.3.motor-pos-cmd
-##### net emcmot.03.pos-cmd => [PRUCONF](DRIVER).stepgen.03.position-cmd
+net emcmot.03.pos-cmd <= axis.3.motor-pos-cmd
+net emcmot.03.pos-cmd => [PRUCONF](DRIVER).stepgen.03.position-cmd
 
-##### net motor.03.pos-fb <= [PRUCONF](DRIVER).stepgen.03.position-fb
-#### net motor.03.pos-fb => axis.3.motor-pos-fb
+net motor.03.pos-fb <= [PRUCONF](DRIVER).stepgen.03.position-fb
+net motor.03.pos-fb => axis.3.motor-pos-fb
 
 
 # timing parameters
-##### setp [PRUCONF](DRIVER).stepgen.03.dirsetup        [AXIS_3]DIRSETUP
-##### setp [PRUCONF](DRIVER).stepgen.03.dirhold         [AXIS_3]DIRHOLD
+setp [PRUCONF](DRIVER).stepgen.03.dirsetup        [AXIS_3]DIRSETUP
+setp [PRUCONF](DRIVER).stepgen.03.dirhold         [AXIS_3]DIRHOLD
 
-##### setp [PRUCONF](DRIVER).stepgen.03.steplen         [AXIS_3]STEPLEN
-##### setp [PRUCONF](DRIVER).stepgen.03.stepspace       [AXIS_3]STEPSPACE
+setp [PRUCONF](DRIVER).stepgen.03.steplen         [AXIS_3]STEPLEN
+setp [PRUCONF](DRIVER).stepgen.03.stepspace       [AXIS_3]STEPSPACE
 
-##### setp [PRUCONF](DRIVER).stepgen.03.position-scale  [AXIS_3]SCALE
+setp [PRUCONF](DRIVER).stepgen.03.position-scale  [AXIS_3]SCALE
 
-##### setp [PRUCONF](DRIVER).stepgen.03.maxvel          [AXIS_3]STEPGEN_MAX_VEL
-##### setp [PRUCONF](DRIVER).stepgen.03.maxaccel        [AXIS_3]STEPGEN_MAX_ACC
+setp [PRUCONF](DRIVER).stepgen.03.maxvel          [AXIS_3]STEPGEN_MAX_VEL
+setp [PRUCONF](DRIVER).stepgen.03.maxaccel        [AXIS_3]STEPGEN_MAX_ACC
 
 #setp [PRUCONF](DRIVER).stepgen.03.step_type       0
 # P8.30 GPIO2.25
-##### setp [PRUCONF](DRIVER).stepgen.03.steppin         0x22
+setp [PRUCONF](DRIVER).stepgen.03.steppin         0x22
 # P8.21 GPIO1.30
-##### setp [PRUCONF](DRIVER).stepgen.03.dirpin          0x23
+setp [PRUCONF](DRIVER).stepgen.03.dirpin          0x23
 
 
 # ##################################################
@@ -263,7 +272,7 @@ newsig e0.temp.set   float
 newsig e0.temp.meas  float
 newsig bed.temp.set  float
 newsig bed.temp.meas float
-
+newsig fan.speed.set float
 
 setp hal_pru_generic.pwmgen.00.pwm_period       10000000
 
@@ -272,10 +281,45 @@ setp hal_pru_generic.pwmgen.00.out.00.pin       0x37
 setp hal_pru_generic.pwmgen.00.out.00.enable    1
 setp hal_pru_generic.pwmgen.00.out.00.value     0.0
 
-# J3 E1 Heater PRU1.out0
+#signals for comparing set value and actual value of temperature
+#newsig M209_set_temp             float
+newsig sub_temp_min               float
+newsig add_temp_max               float
+newsig e0_temp_within_range       bit
+
+#set boundaries with sum2 +1 and -1 of the wanted temperature
+sets add_temp_max 1
+sets sub_temp_min -1
+
+net e0.temp.set  => sum2.0.in0
+setp sum2.0.in1 2
+#net add_temp_max.out => sum2.0.in1
+
+net e0.temp.set  => sum2.1.in0
+setp sum2.1.in1 -2
+#net sub_temp_min.out => sum2.1.in1
+
+#the values will be given to the wcomp.0 function
+net minboundary sum2.1.out => wcomp.0.min
+net maxboundary sum2.0.out => wcomp.0.max
+net e0.temp.meas => wcomp.0.in
+
+#the output of wcomp.0 will say if measured temperature is in range of set value
+#this needs to be coupled to a digital input for M66 readout
+net e0_temp_within_range wcomp.0.out => motion.digital-in-00
+
+# no longer J3 E1 Heater PRU1.out0
+# instead used for FAN control
+# we use scale 255 for compatibility with slicing software
 setp hal_pru_generic.pwmgen.00.out.01.pin       0x36
 setp hal_pru_generic.pwmgen.00.out.01.enable    1
 setp hal_pru_generic.pwmgen.00.out.01.value     0.0
+setp hal_pru_generic.pwmgen.00.out.01.scale     255
+
+#linking motion.analog-out-00 to fan speed.set.signal
+net fan.speed.set <= motion.analog-out-00
+net fan.speed.set => hal_pru_generic.pwmgen.00.out.01.value
+
 
 # J4 Bed Heater GPIO2.16
 setp hal_pru_generic.pwmgen.00.out.02.pin       0x52
@@ -316,23 +360,23 @@ setp limit1.1.min 0
 
 # PID Parameters for adjusting temperature control
 # Extruder
-#setp pid.0.FF0      0
-#setp pid.0.FF1      0
-#setp pid.0.FF2      0
+#setp pid.0.FF0      0  
+#setp pid.0.FF1      0  
+#setp pid.0.FF2      0  
 setp pid.0.Pgain  0.30
 setp pid.0.Igain  0.00001
 setp pid.0.Dgain  0.9375
 setp pid.0.maxerrorI 1.0
-setp pid.0.bias    0.5
+setp pid.0.bias    0.5  
 setp pid.0.enable   1
 
 # Bed
-#setp pid.1.FF0      0
-#setp pid.1.FF1      0
-#setp pid.1.FF2      0
+#setp pid.1.FF0      0  
+#setp pid.1.FF1      0  
+#setp pid.1.FF2      0  
 setp pid.1.Pgain  1
 setp pid.1.Igain  0.0
 setp pid.1.Dgain  0.0
 setp pid.1.maxerrorI 1.0
-setp pid.1.bias    0.5
+setp pid.1.bias    0.5  
 setp pid.1.enable   1

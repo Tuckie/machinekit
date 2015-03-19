@@ -468,6 +468,17 @@ typedef double real_t __attribute__((aligned(8)));
 typedef __u64 ireal_t __attribute__((aligned(8))); // integral type as wide as real_t / hal_float_t
 #define hal_float_t volatile real_t
 
+
+/** HAL "data union" structure
+ ** This structure may hold any type of hal data
+*/
+typedef union {
+    hal_bit_t b;
+    hal_s32_t s;
+    hal_s32_t u;
+    hal_float_t f;
+} hal_data_u;
+
 // type tags of HAL objects. See also protobuf/proto/types.proto/enum ObjectType
 // which must match:
 typedef enum {
@@ -587,6 +598,13 @@ extern int hal_pin_s32_newf(hal_pin_dir_t dir,
 */
 extern int hal_pin_new(const char *name, hal_type_t type, hal_pin_dir_t dir,
     void **data_ptr_addr, int comp_id);
+
+// printf-style version of hal_pin_new():
+int hal_pin_newf(hal_type_t type,
+		 hal_pin_dir_t dir,
+		 void ** data_ptr_addr,
+		 int comp_id,
+		 const char *fmt, ...);
 
 /** There is no 'hal_pin_delete()' function.  Once a component has
     created a pin, that pin remains as long as the component exists.
@@ -735,6 +753,13 @@ extern int hal_param_s32_newf(hal_param_dir_t dir,
 extern int hal_param_new(const char *name, hal_type_t type, hal_param_dir_t dir,
     void *data_addr, int comp_id);
 
+// printf-style version of hal_param_new()
+int hal_param_newf(hal_type_t type,
+		   hal_param_dir_t dir,
+		   void * data_addr,
+		   int comp_id,
+		   const char *fmt, ...);
+
 /** There is no 'hal_param_delete()' function.  Once a component has
     created a parameter, that parameter remains as long as the
     component exists.  All parameters belonging to a component are
@@ -817,6 +842,16 @@ extern int hal_param_set(const char *name, hal_type_t type, void *value_addr);
 */
 extern int hal_export_funct(const char *name, void (*funct) (void *, long),
     void *arg, int uses_fp, int reentrant, int comp_id);
+
+// printf-style version of the above
+int hal_export_functf(void (*funct) (void *, long),
+		      void *arg,
+		      int uses_fp,
+		      int reentrant,
+		      int comp_id,
+		      const char *fmt, ... )
+    __attribute__((format(printf,6,7)));
+
 
 /** hal_create_thread() establishes a realtime thread that will
     execute one or more HAL functions periodically.
@@ -905,6 +940,20 @@ extern int hal_start_threads(void);
     error code.
 */
 extern int hal_stop_threads(void);
+
+// returns vtable ID (handle, >0) or error code (< 0)
+// mark as owned by comp comp_id (optional, zero if not owned)
+int hal_export_vtable(const char *name, int version, void *vtable, int comp_id);
+int hal_remove_vtable(int vtable_id);
+
+// returns vtable_id (handle) or error code
+// increases refcount
+int hal_reference_vtable(const char *name, int version, void **vtable);
+
+// drops refcount
+int hal_unreference_vtable(int vtable_id);
+
+
 
 /** HAL 'constructor' typedef
     If it is not NULL, this points to a function which can construct a new

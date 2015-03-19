@@ -26,6 +26,7 @@ loadrt hal_bb_gpio output_pins=107,126,217,218,224,226 input_pins=108,109,110,11
 loadrt [PRUCONF](DRIVER) prucode=$(HAL_RTMOD_DIR)/[PRUCONF](PRUBIN) [PRUCONF](CONFIG)
 loadrt pid num_chan=2
 loadrt limit1 count=2
+loadrt mux2 count=1
 
 loadrt gantry count=1 personality=2
 
@@ -41,12 +42,15 @@ loadusr -Wn Therm ./ReadTemp.py -n Therm --num_chan 2 -t 1 1 -a 4 5
 
 addf [PRUCONF](DRIVER).capture-position   servo-thread
 addf bb_gpio.read                         servo-thread
+addf mux2.0                               servo-thread
+addf gantry.0.read                	  servo-thread
 addf motion-command-handler               servo-thread
 addf motion-controller                    servo-thread
 addf pid.0.do-pid-calcs                   servo-thread
 addf pid.1.do-pid-calcs                   servo-thread
 addf limit1.0                             servo-thread
 addf limit1.1                             servo-thread
+addf gantry.0.write                       servo-thread
 addf [PRUCONF](DRIVER).update             servo-thread
 addf bb_gpio.write                        servo-thread
 
@@ -61,19 +65,21 @@ addf bb_gpio.write                        servo-thread
 # ################
 
 # axis enable chain
-newsig emcmot.00.enable bit
-sets emcmot.00.enable FALSE
+##newsig emcmot.00.enable bit
+##sets emcmot.00.enable FALSE
 
-net emcmot.00.enable <= axis.0.amp-enable-out
-net emcmot.00.enable => [PRUCONF](DRIVER).stepgen.00.enable
+##net emcmot.00.enable <= axis.0.amp-enable-out
+##net emcmot.00.enable => [PRUCONF](DRIVER).stepgen.00.enable
 
 
 # position command and feedback
-net emcmot.00.pos-cmd <= axis.0.motor-pos-cmd
-net emcmot.00.pos-cmd => [PRUCONF](DRIVER).stepgen.00.position-cmd
+##net emcmot.00.pos-cmd <= axis.0.motor-pos-cmd
+##net emcmot.00.pos-cmd => [PRUCONF](DRIVER).stepgen.00.position-cmd
 
-net motor.00.pos-fb <= [PRUCONF](DRIVER).stepgen.00.position-fb
-net motor.00.pos-fb => axis.0.motor-pos-fb
+##net motor.00.pos-fb <= [PRUCONF](DRIVER).stepgen.00.position-fb
+##net motor.00.pos-fb => axis.0.motor-pos-fb
+
+
 
 
 # timing parameters
@@ -88,6 +94,10 @@ setp [PRUCONF](DRIVER).stepgen.00.position-scale  [AXIS_0]SCALE
 setp [PRUCONF](DRIVER).stepgen.00.maxvel          [AXIS_0]STEPGEN_MAX_VEL
 setp [PRUCONF](DRIVER).stepgen.00.maxaccel        [AXIS_0]STEPGEN_MAX_ACC
 
+net xpos-cmd axis.0.motor-pos-cmd => [PRUCONF](DRIVER).stepgen.00.position-cmd
+net xpos-fb [PRUCONF](DRIVER).stepgen.00.position-fb => axis.0.motor-pos-fb
+net xenable axis.0.amp-enable-out => [PRUCONF](DRIVER).stepgen.00.enable
+
 #setp [PRUCONF](DRIVER).stepgen.00.step_type       0
 # P8.43 PRU1.out2
 setp [PRUCONF](DRIVER).stepgen.00.steppin         0x4C
@@ -100,151 +110,114 @@ setp [PRUCONF](DRIVER).stepgen.00.dirpin          0x4D
 # ################
 
 # axis enable chain
-newsig emcmot.01.enable bit
-sets emcmot.01.enable FALSE
+#newsig emcmot.01.enable bit
+#sets emcmot.01.enable FALSE
 
-net emcmot.01.enable <= axis.1.amp-enable-out
-net emcmot.01.enable => [PRUCONF](DRIVER).stepgen.01.enable [PRUCONF](DRIVER).stepgen.03.enable
+# y-axis gantry
+net y1pos-cmd gantry.0.joint.00.pos-cmd => [PRUCONF](DRIVER).stepgen.01.position-cmd
+net y1pos-fb  gantry.0.joint.00.pos-fb  <= [PRUCONF](DRIVER).stepgen.01.position-fb
+net y2pos-cmd gantry.0.joint.01.pos-cmd => [PRUCONF](DRIVER).stepgen.02.position-cmd
+net y2pos-fb  gantry.0.joint.01.pos-fb  <= [PRUCONF](DRIVER).stepgen.02.position-fb
+net ypos-cmd  gantry.0.position-cmd     <= axis.1.motor-pos-cmd
+net ypos-fb   gantry.0.position-fb      => axis.1.motor-pos-fb
+net yenable axis.1.amp-enable-out => [PRUCONF](DRIVER).stepgen.01.enable
+net yenable axis.1.amp-enable-out => [PRUCONF](DRIVER).stepgen.02.enable
+setp gantry.0.search-vel [AXIS_1]HOME_SEARCH_VEL
 
+# y1-axis
+setp [PRUCONF](DRIVER).stepgen.01.position-scale [AXIS_1]SCALE
+setp [PRUCONF](DRIVER).stepgen.01.steplen [AXIS_1]STEPLEN
+setp [PRUCONF](DRIVER).stepgen.01.stepspace [AXIS_1]STEPSPACE
+setp [PRUCONF](DRIVER).stepgen.01.dirhold [AXIS_1]DIRHOLD
+setp [PRUCONF](DRIVER).stepgen.01.dirsetup [AXIS_1]DIRSETUP
+setp [PRUCONF](DRIVER).stepgen.01.maxaccel [AXIS_1]STEPGEN_MAX_ACC
 
-# position command and feedback
-net emcmot.01.pos-cmd <= axis.1.motor-pos-cmd
-net emcmot.01.pos-cmd => [PRUCONF](DRIVER).stepgen.01.position-cmd
-net emcmot.01.pos-cmd => [PRUCONF](DRIVER).stepgen.03.position-cmd
-
-net motor.01.pos-fb <= [PRUCONF](DRIVER).stepgen.01.position-fb
-net motor.01.pos-fb => axis.1.motor-pos-fb
-
-# timing parameters
-setp [PRUCONF](DRIVER).stepgen.01.dirsetup        [AXIS_1]DIRSETUP
-setp [PRUCONF](DRIVER).stepgen.03.dirsetup        [AXIS_1]DIRSETUP
-setp [PRUCONF](DRIVER).stepgen.01.dirhold         [AXIS_1]DIRHOLD
-setp [PRUCONF](DRIVER).stepgen.03.dirhold         [AXIS_1]DIRHOLD
-
-setp [PRUCONF](DRIVER).stepgen.01.steplen         [AXIS_1]STEPLEN
-setp [PRUCONF](DRIVER).stepgen.03.steplen         [AXIS_1]STEPLEN
-setp [PRUCONF](DRIVER).stepgen.01.stepspace       [AXIS_1]STEPSPACE
-setp [PRUCONF](DRIVER).stepgen.03.stepspace       [AXIS_1]STEPSPACE
-
-setp [PRUCONF](DRIVER).stepgen.01.position-scale  [AXIS_1]SCALE
-setp [PRUCONF](DRIVER).stepgen.03.position-scale  [AXIS_1]SCALE
-
-setp [PRUCONF](DRIVER).stepgen.01.maxvel          [AXIS_1]STEPGEN_MAX_VEL
-setp [PRUCONF](DRIVER).stepgen.03.maxvel          [AXIS_1]STEPGEN_MAX_VEL
-setp [PRUCONF](DRIVER).stepgen.01.maxaccel        [AXIS_1]STEPGEN_MAX_ACC
-setp [PRUCONF](DRIVER).stepgen.03.maxaccel        [AXIS_1]STEPGEN_MAX_ACC
-
-#setp [PRUCONF](DRIVER).stepgen.01.step_type       0
 # P8.42 PRU1.out5
 setp [PRUCONF](DRIVER).stepgen.01.steppin         0x4E
 # P8.39 PRU1.out6
 setp [PRUCONF](DRIVER).stepgen.01.dirpin          0x4F
 
-# P8.30 GPIO2.25
-setp [PRUCONF](DRIVER).stepgen.03.steppin         0x22
-# P8.21 GPIO1.30
-setp [PRUCONF](DRIVER).stepgen.03.dirpin          0x23
+# y2-axis
+setp [PRUCONF](DRIVER).stepgen.02.position-scale -[AXIS_1]SCALE
+setp [PRUCONF](DRIVER).stepgen.02.steplen [AXIS_1]STEPLEN
+setp [PRUCONF](DRIVER).stepgen.02.stepspace [AXIS_1]STEPSPACE
+setp [PRUCONF](DRIVER).stepgen.02.dirhold [AXIS_1]DIRHOLD
+setp [PRUCONF](DRIVER).stepgen.02.dirsetup [AXIS_1]DIRSETUP
+setp [PRUCONF](DRIVER).stepgen.02.maxaccel [AXIS_1]STEPGEN_MAX_ACC
 
-# Invert step direction on second Y
-setp [PRUCONF](DRIVER).stepgen.03.stepinvert      1
+
+
+# P8.27 PRU1.out8
+setp [PRUCONF](DRIVER).stepgen.02.steppin         0x50
+# P8.29 PRU1.out9
+setp [PRUCONF](DRIVER).stepgen.02.dirpin          0x51
 
 # ################
 # Z [2] Axis
 # ################
 
 # axis enable chain
-newsig emcmot.02.enable bit
-sets emcmot.02.enable FALSE
+##newsig emcmot.02.enable bit
+##sets emcmot.02.enable FALSE
 
-net emcmot.02.enable <= axis.2.amp-enable-out
-net emcmot.02.enable => [PRUCONF](DRIVER).stepgen.02.enable
-
-
-# position command and feedback
-net emcmot.02.pos-cmd <= axis.2.motor-pos-cmd
-net emcmot.02.pos-cmd => [PRUCONF](DRIVER).stepgen.02.position-cmd
-
-net motor.02.pos-fb <= [PRUCONF](DRIVER).stepgen.02.position-fb
-net motor.02.pos-fb => axis.2.motor-pos-fb
-
-
-# timing parameters
-setp [PRUCONF](DRIVER).stepgen.02.dirsetup        [AXIS_2]DIRSETUP
-setp [PRUCONF](DRIVER).stepgen.02.dirhold         [AXIS_2]DIRHOLD
-
-setp [PRUCONF](DRIVER).stepgen.02.steplen         [AXIS_2]STEPLEN
-setp [PRUCONF](DRIVER).stepgen.02.stepspace       [AXIS_2]STEPSPACE
-
-setp [PRUCONF](DRIVER).stepgen.02.position-scale  [AXIS_2]SCALE
-
-setp [PRUCONF](DRIVER).stepgen.02.maxvel          [AXIS_2]STEPGEN_MAX_VEL
-setp [PRUCONF](DRIVER).stepgen.02.maxaccel        [AXIS_2]STEPGEN_MAX_ACC
-
-#setp [PRUCONF](DRIVER).stepgen.02.step_type       0
-# P8.27 PRU1.out8
-setp [PRUCONF](DRIVER).stepgen.02.steppin         0x50
-# P8.29 PRU1.out9
-setp [PRUCONF](DRIVER).stepgen.02.dirpin          0x51
-
-
-# ################
-# A [3] Axis (Extruder)
-# ################
-
-# axis enable chain
-#### newsig emcmot.03.enable bit
-#### sets emcmot.03.enable FALSE
-
-#### net emcmot.03.enable <= axis.3.amp-enable-out
-##### net emcmot.03.enable => [PRUCONF](DRIVER).stepgen.03.enable
+##net emcmot.02.enable <= axis.2.amp-enable-out
+##net emcmot.02.enable => [PRUCONF](DRIVER).stepgen.02.enable
 
 
 # position command and feedback
-#### net emcmot.03.pos-cmd <= axis.3.motor-pos-cmd
-##### net emcmot.03.pos-cmd => [PRUCONF](DRIVER).stepgen.03.position-cmd
+##net emcmot.02.pos-cmd <= axis.2.motor-pos-cmd
+##net emcmot.02.pos-cmd => [PRUCONF](DRIVER).stepgen.02.position-cmd
 
-##### net motor.03.pos-fb <= [PRUCONF](DRIVER).stepgen.03.position-fb
-#### net motor.03.pos-fb => axis.3.motor-pos-fb
+##net motor.02.pos-fb <= [PRUCONF](DRIVER).stepgen.02.position-fb
+##net motor.02.pos-fb => axis.2.motor-pos-fb
 
+net zpos-cmd axis.2.motor-pos-cmd => [PRUCONF](DRIVER).stepgen.03.position-cmd
+net zpos-fb [PRUCONF](DRIVER).stepgen.03.position-fb => axis.2.motor-pos-fb
+net zenable axis.2.amp-enable-out => [PRUCONF](DRIVER).stepgen.03.enable
 
 # timing parameters
-##### setp [PRUCONF](DRIVER).stepgen.03.dirsetup        [AXIS_3]DIRSETUP
-##### setp [PRUCONF](DRIVER).stepgen.03.dirhold         [AXIS_3]DIRHOLD
+setp [PRUCONF](DRIVER).stepgen.03.dirsetup        [AXIS_2]DIRSETUP
+setp [PRUCONF](DRIVER).stepgen.03.dirhold         [AXIS_2]DIRHOLD
 
-##### setp [PRUCONF](DRIVER).stepgen.03.steplen         [AXIS_3]STEPLEN
-##### setp [PRUCONF](DRIVER).stepgen.03.stepspace       [AXIS_3]STEPSPACE
+setp [PRUCONF](DRIVER).stepgen.03.steplen         [AXIS_2]STEPLEN
+setp [PRUCONF](DRIVER).stepgen.03.stepspace       [AXIS_2]STEPSPACE
 
-##### setp [PRUCONF](DRIVER).stepgen.03.position-scale  [AXIS_3]SCALE
+setp [PRUCONF](DRIVER).stepgen.03.position-scale  [AXIS_2]SCALE
 
-##### setp [PRUCONF](DRIVER).stepgen.03.maxvel          [AXIS_3]STEPGEN_MAX_VEL
-##### setp [PRUCONF](DRIVER).stepgen.03.maxaccel        [AXIS_3]STEPGEN_MAX_ACC
+setp [PRUCONF](DRIVER).stepgen.03.maxvel          [AXIS_2]STEPGEN_MAX_VEL
+setp [PRUCONF](DRIVER).stepgen.03.maxaccel        [AXIS_2]STEPGEN_MAX_ACC
 
 #setp [PRUCONF](DRIVER).stepgen.03.step_type       0
-# P8.30 GPIO2.25
-##### setp [PRUCONF](DRIVER).stepgen.03.steppin         0x22
-# P8.21 GPIO1.30
-##### setp [PRUCONF](DRIVER).stepgen.03.dirpin          0x23
 
+
+# P8.30 GPIO2.25
+setp [PRUCONF](DRIVER).stepgen.03.steppin         0x22
+# P8.21 GPIO1.30
+setp [PRUCONF](DRIVER).stepgen.03.dirpin          0x23
 
 # ##################################################
 # Standard I/O - EStop, Enables, Limit Switches, Etc
 # ##################################################
 
 # create a signal for the estop loopback
-net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
+# next two lines are for fan
+setp mux2.0.in0 0.0
+setp mux2.0.in1 1.0
+net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in 
 
 # create signals for tool loading loopback
 net tool-prep-loop iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
 net tool-change-loop iocontrol.0.tool-change => iocontrol.0.tool-changed
 
 # Axis enable signals
-net emcmot.00.enable => bb_gpio.p9.out-18
+#TODO figure outu which goes where here
+net xenable => bb_gpio.p9.out-18 mux2.0.sel
 setp bb_gpio.p9.out-18.invert 1
-net emcmot.01.enable => bb_gpio.p9.out-17
+net yenable => bb_gpio.p9.out-17
 setp bb_gpio.p9.out-17.invert 1
-net emcmot.02.enable => bb_gpio.p9.out-26
+net yenable => bb_gpio.p9.out-26
 setp bb_gpio.p9.out-26.invert 1
-net emcmot.03.enable => bb_gpio.p9.out-24
+net zenable => bb_gpio.p9.out-24
 setp bb_gpio.p9.out-24.invert 1
 
 # Machine power (BeBoPr Enable)
@@ -272,67 +245,69 @@ setp hal_pru_generic.pwmgen.00.out.00.pin       0x37
 setp hal_pru_generic.pwmgen.00.out.00.enable    1
 setp hal_pru_generic.pwmgen.00.out.00.value     0.0
 
+net fan_signal mux2.0.out => hal_pru_generic.pwmgen.00.out.00.value
+
 # J3 E1 Heater PRU1.out0
-setp hal_pru_generic.pwmgen.00.out.01.pin       0x36
-setp hal_pru_generic.pwmgen.00.out.01.enable    1
-setp hal_pru_generic.pwmgen.00.out.01.value     0.0
+##setp hal_pru_gestopeneric.pwmgen.00.out.01.pin       0x36
+#setp hal_pru_generic.pwmgen.00.out.01.enable    1
+#setp hal_pru_generic.pwmgen.00.out.01.value     0.0
 
 # J4 Bed Heater GPIO2.16
-setp hal_pru_generic.pwmgen.00.out.02.pin       0x52
-setp hal_pru_generic.pwmgen.00.out.02.enable    1
-setp hal_pru_generic.pwmgen.00.out.02.value     0.0
+##setp hal_pru_generic.pwmgen.00.out.02.pin       0x52
+##setp hal_pru_generic.pwmgen.00.out.02.enable    1
+##setp hal_pru_generic.pwmgen.00.out.02.value     0.0
 
 # PID for Extruder 0 temperature control
-net e0.temp.meas    <= Therm.temp0
-net e0.temp.meas    => pid.0.feedback
+##net e0.temp.meas    <= Therm.temp0
+##net e0.temp.meas    => pid.0.feedback
 
-sets e0.temp.set  0
-net e0.temp.set     => pid.0.command
+##sets e0.temp.set  0
+##net e0.temp.set     => pid.0.command
 
-net e0.heater  <= pid.0.output
-net e0.heater  => limit1.0.in
-net e0.heaterl <= limit1.0.out
-net e0.heaterl => hal_pru_generic.pwmgen.00.out.00.value
+##net e0.heater  <= pid.0.output
+##net e0.heater  => limit1.0.in
+##net e0.heaterl <= limit1.0.out
+##net e0.heaterl => hal_pru_generic.pwmgen.00.out.00.value
 
 # Limit heater PWM to positive values
 # PWM mimics hm2 implementation, which generates output for negative values
-setp limit1.0.min 0
+##setp limit1.0.min 0
 
 # PID for Bed temperature control
-net bed.temp.meas    <= Therm.temp1
-net bed.temp.meas    => pid.1.feedback
+##net bed.temp.meas    <= Therm.temp1
+##net bed.temp.meas    => pid.1.feedback
 
-sets bed.temp.set  0
-net bed.temp.set     => pid.1.command
+##sets bed.temp.set  0
+##net bed.temp.set     => pid.1.command
 
-net bed.heater  <= pid.1.output
-net bed.heater  => limit1.1.in
-net bed.heaterl <= limit1.1.out
-net bed.heaterl => hal_pru_generic.pwmgen.00.out.02.value
+##net bed.heater  <= pid.1.output
+##net bed.heater  => limit1.1.in
+##net bed.heaterl <= limit1.1.out
+##net bed.heaterl => hal_pru_generic.pwmgen.00.out.02.value
 
 # Limit heater PWM to positive values
 # PWM mimics hm2 implementation, which generates output for negative values
-setp limit1.1.min 0
+##setp limit1.1.min 0
 
 # PID Parameters for adjusting temperature control
 # Extruder
 #setp pid.0.FF0      0
 #setp pid.0.FF1      0
 #setp pid.0.FF2      0
-setp pid.0.Pgain  0.30
-setp pid.0.Igain  0.00001
-setp pid.0.Dgain  0.9375
-setp pid.0.maxerrorI 1.0
-setp pid.0.bias    0.5
-setp pid.0.enable   1
+##setp pid.0.Pgain  0.30
+##setp pid.0.Igain  0.00001
+##setp pid.0.Dgain  0.9375
+##setp pid.0.maxerrorI 1.0
+##setp pid.0.bias    0.5
+##setp pid.0.enable   1
 
 # Bed
 #setp pid.1.FF0      0
 #setp pid.1.FF1      0
 #setp pid.1.FF2      0
-setp pid.1.Pgain  1
-setp pid.1.Igain  0.0
-setp pid.1.Dgain  0.0
-setp pid.1.maxerrorI 1.0
-setp pid.1.bias    0.5
-setp pid.1.enable   1
+##setp pid.1.Pgain  1
+##setp pid.1.Igain  0.0
+##setp pid.1.Dgain  0.0
+##setp pid.1.maxerrorI 1.0
+##setp pid.1.bias    0.5
+##setp pid.1.enable   1
